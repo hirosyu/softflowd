@@ -187,6 +187,9 @@ struct FLOW {
 		struct in_addr v4;
 		struct in6_addr v6;
 	} addr[2];				/* Endpoint addresses */
+
+	u_char mac[2][6];		// mac address, sourceMacAddress=mac[0], IPFIX_postDestinationMacAddress=mac[1]
+
 	u_int16_t port[2];			/* Endpoint ports */
 	u_int8_t tcp_flags[2];			/* Cumulative OR of flags */
 	u_int8_t tos[2];			/* Tos */

@@ -92,6 +92,8 @@ struct IPFIX_VENDOR_FIELD_SPECIFIER {
 /* ... */
 #define IPFIX_icmpTypeCodeIPv4		32
 /* ... */
+#define IPFIX_sourceMacAddress		56
+#define IPFIX_postDestinationMacAddress	57
 /* ... */
 #define IPFIX_vlanId			58
 
@@ -119,7 +121,7 @@ struct IPFIX_VENDOR_FIELD_SPECIFIER {
 #define PSAMP_selectorAlgorithm_count	1
 
 /* Stuff pertaining to the templates that softflowd uses */
-#define IPFIX_SOFTFLOWD_TEMPLATE_COMMONRECORDS	14
+#define IPFIX_SOFTFLOWD_TEMPLATE_COMMONRECORDS	16
 #define IPFIX_SOFTFLOWD_TEMPLATE_TIMERECORDS	2
 #define IPFIX_SOFTFLOWD_TEMPLATE_VENDORRECORDS	5
 
@@ -158,7 +160,10 @@ struct IPFIX_SOFTFLOWD_DATA_COMMON {
 	u_int32_t ingressInterface, egressInterface;
 	u_int16_t sourceTransportPort, destinationTransportPort;
 	u_int8_t protocolIdentifier, tcpControlBits, ipVersion, ipClassOfService;
-	u_int16_t icmpTypeCode, vlanId;
+	u_int16_t icmpTypeCode;
+	unsigned char sourceMacAddress[6];
+	unsigned char postDestinationMacAddress[6];
+	u_int16_t vlanId;
 } __packed;
 
 struct IPFIX_SOFTFLOWD_DATA_BIDIRECTION {
@@ -240,6 +245,39 @@ static struct IPFIX_SOFTFLOWD_OPTION_TEMPLATE option_template;
 static struct IPFIX_SOFTFLOWD_OPTION_DATA option_data;
 static int ipfix_pkts_until_template = -1;
 
+/* ============================================================
+ 9.1.  Encoding a Multicast Data Record with basicList
+
+   Consider encoding a multicast Data Record containing the following
+   data:
+
+   ---------------------------------------------------------------
+    Ingress If | Source IP   | Destination IP  | Egress Interfaces
+   ---------------------------------------------------------------
+         9       192.0.2.201      233.252.0.1         1, 4, 8
+   ---------------------------------------------------------------
+
+   Template Record for the multicast Flows, with the Template ID 256:
+
+    0                   1                   2                   3
+    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |         Set ID = 2            |      Length = 24 octets       |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |       Template ID = 256       |       Field Count = 4         |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |0|    ingressInterface = 10    |       Field Length = 4        |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |0|   sourceIPv4Address = 8     |       Field Length = 4        |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |0| DestinationIPv4Address = 12 |       Field Length = 4        |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |0|       basicList = 291       |     Field Length = 0xFFFF     |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+              Figure 11: Encoding basicList, Template Record
+
+ * ============================================================ */
 static void
 ipfix_init_template(struct FLOWTRACKPARAMETERS *param)
 {
@@ -272,35 +310,40 @@ ipfix_init_template(struct FLOWTRACKPARAMETERS *param)
 	v4_template.r[10].length = htons(1);
 	v4_template.r[11].ie = htons(IPFIX_ipClassOfService);
 	v4_template.r[11].length = htons(1);
+
 	v4_template.r[12].ie = htons(IPFIX_icmpTypeCodeIPv4);
 	v4_template.r[12].length = htons(2);
-	v4_template.r[13].ie = htons(IPFIX_vlanId);
-	v4_template.r[13].length = htons(2);
+	v4_template.r[13].ie = htons(IPFIX_sourceMacAddress);
+	v4_template.r[13].length = htons(6);
+	v4_template.r[14].ie = htons(IPFIX_postDestinationMacAddress);
+	v4_template.r[14].length = htons(6);
+	v4_template.r[15].ie = htons(IPFIX_vlanId);
+	v4_template.r[15].length = htons(2);
 	if (param->time_format == 's') {
-		v4_template.r[14].ie = htons(IPFIX_flowStartSeconds);
-		v4_template.r[14].length = htons(sizeof(u_int32_t));
-		v4_template.r[15].ie = htons(IPFIX_flowEndSeconds);
-		v4_template.r[15].length = htons(sizeof(u_int32_t));
+		v4_template.r[16].ie = htons(IPFIX_flowStartSeconds);
+		v4_template.r[16].length = htons(sizeof(u_int32_t));
+		v4_template.r[17].ie = htons(IPFIX_flowEndSeconds);
+		v4_template.r[17].length = htons(sizeof(u_int32_t));
 	} else if (param->time_format == 'm') {
-		v4_template.r[14].ie = htons(IPFIX_flowStartMilliSeconds);
-		v4_template.r[14].length = htons(sizeof(u_int64_t));
-		v4_template.r[15].ie = htons(IPFIX_flowEndMilliSeconds);
-		v4_template.r[15].length = htons(sizeof(u_int64_t));
+		v4_template.r[16].ie = htons(IPFIX_flowStartMilliSeconds);
+		v4_template.r[16].length = htons(sizeof(u_int64_t));
+		v4_template.r[17].ie = htons(IPFIX_flowEndMilliSeconds);
+		v4_template.r[17].length = htons(sizeof(u_int64_t));
 	} else if (param->time_format == 'M') {
-		v4_template.r[14].ie = htons(IPFIX_flowStartMicroSeconds);
-		v4_template.r[14].length = htons(sizeof(u_int64_t));
-		v4_template.r[15].ie = htons(IPFIX_flowEndMicroSeconds);
-		v4_template.r[15].length = htons(sizeof(u_int64_t));
+		v4_template.r[16].ie = htons(IPFIX_flowStartMicroSeconds);
+		v4_template.r[16].length = htons(sizeof(u_int64_t));
+		v4_template.r[17].ie = htons(IPFIX_flowEndMicroSeconds);
+		v4_template.r[17].length = htons(sizeof(u_int64_t));
 	} else if (param->time_format == 'n') {
-		v4_template.r[14].ie = htons(IPFIX_flowStartNanoSeconds);
-		v4_template.r[14].length = htons(sizeof(u_int64_t));
-		v4_template.r[15].ie = htons(IPFIX_flowEndNanoSeconds);
-		v4_template.r[15].length = htons(sizeof(u_int64_t));
+		v4_template.r[16].ie = htons(IPFIX_flowStartNanoSeconds);
+		v4_template.r[16].length = htons(sizeof(u_int64_t));
+		v4_template.r[17].ie = htons(IPFIX_flowEndNanoSeconds);
+		v4_template.r[17].length = htons(sizeof(u_int64_t));
 	} else {
-		v4_template.r[14].ie = htons(IPFIX_flowStartSysUpTime);
-		v4_template.r[14].length = htons(sizeof(u_int32_t));
-		v4_template.r[15].ie = htons(IPFIX_flowEndSysUpTime);
-		v4_template.r[15].length = htons(sizeof(u_int32_t));
+		v4_template.r[16].ie = htons(IPFIX_flowStartSysUpTime);
+		v4_template.r[16].length = htons(sizeof(u_int32_t));
+		v4_template.r[17].ie = htons(IPFIX_flowEndSysUpTime);
+		v4_template.r[17].length = htons(sizeof(u_int32_t));
 	}
 
 	bzero(&v6_template, sizeof(v6_template));
@@ -334,33 +377,39 @@ ipfix_init_template(struct FLOWTRACKPARAMETERS *param)
 	v6_template.r[11].length = htons(1);
 	v6_template.r[12].ie = htons(IPFIX_icmpTypeCodeIPv6);
 	v6_template.r[12].length = htons(2);
-	v6_template.r[13].ie = htons(IPFIX_vlanId);
-	v6_template.r[13].length = htons(2);
+
+	v6_template.r[13].ie = htons(IPFIX_sourceMacAddress);
+	v6_template.r[13].length = htons(6);
+	v6_template.r[14].ie = htons(IPFIX_postDestinationMacAddress);
+	v6_template.r[14].length = htons(6);
+
+	v6_template.r[15].ie = htons(IPFIX_vlanId);
+	v6_template.r[15].length = htons(2);
 	if (param->time_format == 's') {
-		v6_template.r[14].ie = htons(IPFIX_flowStartSeconds);
-		v6_template.r[14].length = htons(sizeof(u_int32_t));
-		v6_template.r[15].ie = htons(IPFIX_flowEndSeconds);
-		v6_template.r[15].length = htons(sizeof(u_int32_t));
+		v6_template.r[16].ie = htons(IPFIX_flowStartSeconds);
+		v6_template.r[16].length = htons(sizeof(u_int32_t));
+		v6_template.r[17].ie = htons(IPFIX_flowEndSeconds);
+		v6_template.r[17].length = htons(sizeof(u_int32_t));
 	} else if (param->time_format == 'm') {
-		v6_template.r[14].ie = htons(IPFIX_flowStartMilliSeconds);
-		v6_template.r[14].length = htons(sizeof(u_int64_t));
-		v6_template.r[15].ie = htons(IPFIX_flowEndMilliSeconds);
-		v6_template.r[15].length = htons(sizeof(u_int64_t));
+		v6_template.r[16].ie = htons(IPFIX_flowStartMilliSeconds);
+		v6_template.r[16].length = htons(sizeof(u_int64_t));
+		v6_template.r[17].ie = htons(IPFIX_flowEndMilliSeconds);
+		v6_template.r[17].length = htons(sizeof(u_int64_t));
 	} else if (param->time_format == 'M') {
-		v6_template.r[14].ie = htons(IPFIX_flowStartMicroSeconds);
-		v6_template.r[14].length = htons(sizeof(u_int64_t));
-		v6_template.r[15].ie = htons(IPFIX_flowEndMicroSeconds);
-		v6_template.r[15].length = htons(sizeof(u_int64_t));
+		v6_template.r[16].ie = htons(IPFIX_flowStartMicroSeconds);
+		v6_template.r[16].length = htons(sizeof(u_int64_t));
+		v6_template.r[17].ie = htons(IPFIX_flowEndMicroSeconds);
+		v6_template.r[17].length = htons(sizeof(u_int64_t));
 	} else if (param->time_format == 'n') {
-		v6_template.r[14].ie = htons(IPFIX_flowStartNanoSeconds);
-		v6_template.r[14].length = htons(sizeof(u_int64_t));
-		v6_template.r[15].ie = htons(IPFIX_flowEndNanoSeconds);
-		v6_template.r[15].length = htons(sizeof(u_int64_t));
+		v6_template.r[16].ie = htons(IPFIX_flowStartNanoSeconds);
+		v6_template.r[16].length = htons(sizeof(u_int64_t));
+		v6_template.r[17].ie = htons(IPFIX_flowEndNanoSeconds);
+		v6_template.r[17].length = htons(sizeof(u_int64_t));
 	} else {
-		v6_template.r[14].ie = htons(IPFIX_flowStartSysUpTime);
-		v6_template.r[14].length = htons(sizeof(u_int32_t));
-		v6_template.r[15].ie = htons(IPFIX_flowEndSysUpTime);
-		v6_template.r[15].length = htons(sizeof(u_int32_t));
+		v6_template.r[16].ie = htons(IPFIX_flowStartSysUpTime);
+		v6_template.r[16].length = htons(sizeof(u_int32_t));
+		v6_template.r[17].ie = htons(IPFIX_flowEndSysUpTime);
+		v6_template.r[17].length = htons(sizeof(u_int32_t));
 	}
 }
 
@@ -398,8 +447,14 @@ ipfix_init_template_bidirection(struct FLOWTRACKPARAMETERS *param)
 	v4_bidirection_template.r[11].length = htons(1);
 	v4_bidirection_template.r[12].ie = htons(IPFIX_icmpTypeCodeIPv4);
 	v4_bidirection_template.r[12].length = htons(2);
-	v4_bidirection_template.r[13].ie = htons(IPFIX_vlanId);
-	v4_bidirection_template.r[13].length = htons(2);
+
+	v4_bidirection_template.r[13].ie = htons(IPFIX_sourceMacAddress);
+	v4_bidirection_template.r[13].length = htons(6);
+	v4_bidirection_template.r[14].ie = htons(IPFIX_postDestinationMacAddress);
+	v4_bidirection_template.r[14].length = htons(6);
+
+	v4_bidirection_template.r[15].ie = htons(IPFIX_vlanId);
+	v4_bidirection_template.r[15].length = htons(2);
 	v4_bidirection_template.v[0].ie = htons(IPFIX_octetDeltaCount | 0x8000);
 	v4_bidirection_template.v[0].length = htons(4);
 	v4_bidirection_template.v[0].pen = htonl(REVERSE_PEN);
@@ -473,8 +528,14 @@ ipfix_init_template_bidirection(struct FLOWTRACKPARAMETERS *param)
 	v6_bidirection_template.r[11].length = htons(1);
 	v6_bidirection_template.r[12].ie = htons(IPFIX_icmpTypeCodeIPv6);
 	v6_bidirection_template.r[12].length = htons(2);
-	v6_bidirection_template.r[13].ie = htons(IPFIX_vlanId);
-	v6_bidirection_template.r[13].length = htons(2);
+
+	v4_bidirection_template.r[13].ie = htons(IPFIX_sourceMacAddress);
+	v4_bidirection_template.r[13].length = htons(6);
+	v4_bidirection_template.r[14].ie = htons(IPFIX_postDestinationMacAddress);
+	v4_bidirection_template.r[14].length = htons(6);
+
+	v6_bidirection_template.r[15].ie = htons(IPFIX_vlanId);
+	v6_bidirection_template.r[15].length = htons(2);
 	v6_bidirection_template.v[0].ie = htons(IPFIX_octetDeltaCount | 0x8000);
 	v6_bidirection_template.v[0].length = htons(4);
 	v6_bidirection_template.v[0].pen = htonl(REVERSE_PEN);
@@ -647,6 +708,12 @@ ipfix_flow_to_flowset(const struct FLOW *flow, u_char *packet, u_int len,
 	  dc[0]->icmpTypeCode = dc[0]->destinationTransportPort;
 	  dc[1]->icmpTypeCode = dc[1]->destinationTransportPort;
 	}
+
+	memcpy(&dc[0]->sourceMacAddress, &flow->mac[0], sizeof(&flow->mac[0]));
+	memcpy(&dc[0]->postDestinationMacAddress, &flow->mac[1], sizeof(&flow->mac[1]));
+	memcpy(&dc[1]->sourceMacAddress, &flow->mac[0], sizeof(&flow->mac[0]));
+	memcpy(&dc[1]->postDestinationMacAddress, &flow->mac[1], sizeof(&flow->mac[1]));
+
 	dc[0]->vlanId = dc[1]->vlanId = htons(flow->vlanid);
 
 	if (flow->octets[0] > 0) {
@@ -759,6 +826,12 @@ ipfix_flow_to_bidirection_flowset(const struct FLOW *flow, u_char *packet,
 	  dc->icmpTypeCode = flow->port[1];
 	  db->icmpTypeCode = flow->port[0];
 	}
+
+	memcpy(&dc->sourceMacAddress, &flow->mac[0], sizeof(&flow->mac[0]));
+	memcpy(&dc->postDestinationMacAddress, &flow->mac[1], sizeof(&flow->mac[1]));
+	memcpy(&dc->sourceMacAddress, &flow->mac[0], sizeof(&flow->mac[0]));
+	memcpy(&dc->postDestinationMacAddress, &flow->mac[1], sizeof(&flow->mac[1]));
+
 	dc->vlanId = htons(flow->vlanid);
 
 	if (flow->octets[0] > 0 || flow->octets[1] > 0) {

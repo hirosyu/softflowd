@@ -26,8 +26,11 @@ for testing purposes as collector.pl, but it doesn't yet support NetFlow v.9
 Installing
 ----------
 
+sudo apt-get install libpcap-dev
+
 Building softflowd should be as simple as typing:
 
+autoreconf -i
 ./configure
 make
 make install

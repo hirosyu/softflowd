@@ -50,6 +50,7 @@
 #include "freelist.h"
 #include "log.h"
 #include <pcap.h>
+#include <linux/if_ether.h>
 
 /* Global variables */
 static int verbose_flag = 0;		/* Debugging flag */
@@ -551,7 +552,7 @@ flow_update_expiry(struct FLOWTRACK *ft, struct FLOW *flow)
  * (the actual expiry is performed elsewhere)
  */
 static int
-process_packet(struct FLOWTRACK *ft, const u_int8_t *pkt, int af,
+process_packet(struct FLOWTRACK *ft, const u_int8_t *pkt, int offset, int af,
 	       const u_int32_t caplen, const u_int32_t len, u_int16_t vlanid,
     const struct timeval *received_time)
 {
@@ -562,13 +563,18 @@ process_packet(struct FLOWTRACK *ft, const u_int8_t *pkt, int af,
 
 	/* Convert the IP packet to a flow identity */
 	memset(&tmp, 0, sizeof(tmp));
+
+	const struct ethhdr *eth = (const struct ethhdr *)pkt;
+	memcpy(tmp.mac[0], &eth->h_source, sizeof(&eth->h_source));
+	memcpy(tmp.mac[1], &eth->h_dest, sizeof(&eth->h_dest));
+
 	switch (af) {
 	case AF_INET:
-	  if (ipv4_to_flowrec(&tmp, pkt, caplen, len, &frag, af, vlanid) == -1)
+	  if (ipv4_to_flowrec(&tmp, pkt + offset, caplen, len, &frag, af, vlanid) == -1)
 			goto bad;
 		break;
 	case AF_INET6:
-	  if (ipv6_to_flowrec(&tmp, pkt, caplen, len, &frag, af, vlanid) == -1)
+	  if (ipv6_to_flowrec(&tmp, pkt + offset, caplen, len, &frag, af, vlanid) == -1)
 			goto bad;
 		break;
 	default:
@@ -1177,7 +1183,7 @@ flow_cb(u_char *user_data, const struct pcap_pkthdr* phdr,
 	} else {
 		tv.tv_sec = phdr->ts.tv_sec;
 		tv.tv_usec = phdr->ts.tv_usec;
-		if (process_packet(cb_ctxt->ft, pkt + s, af, phdr->caplen - s, 
+		if (process_packet(cb_ctxt->ft, pkt, s, af, phdr->caplen - s, 
 				   phdr->len - s, vlanid, &tv) == PP_MALLOC_FAIL)
 			cb_ctxt->fatal = 1;
 	}
