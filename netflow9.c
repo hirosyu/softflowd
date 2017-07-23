@@ -82,6 +82,9 @@ struct NF9_DATA_FLOWSET_HEADER {
 #define NF9_SAMPLING_INTERVAL           34
 #define NF9_SAMPLING_ALGORITHM          35
 /* ... */
+#define NF9_sourceMacAddress		56
+#define NF9_postDestinationMacAddress	57
+/* ... */
 #define NF9_SRC_VLAN                    58
 /* ... */
 #define NF9_IP_PROTOCOL_VERSION		60
@@ -112,6 +115,8 @@ struct NF9_SOFTFLOWD_DATA_COMMON {
 	u_int32_t if_index_in, if_index_out;
 	u_int16_t src_port, dst_port;
 	u_int8_t protocol, tcp_flags, ipproto, tos;
+	unsigned char sourceMacAddress[6];
+	unsigned char postDestinationMacAddress[6];
 #ifdef ENABLE_NF9_VLAN
 	u_int16_t icmp_type, vlanid;
 #endif /* ENABLE_NF9_VLAN */
@@ -196,11 +201,17 @@ nf9_init_template(void)
 	v4_template.r[12].length = htons(1);
 	v4_template.r[13].type = htons(NF9_TOS);
 	v4_template.r[13].length = htons(1);
+
+	v4_template.r[14].type = htons(NF9_sourceMacAddress);
+	v4_template.r[14].length = htons(6);
+	v4_template.r[15].type = htons(NF9_postDestinationMacAddress);
+	v4_template.r[15].length = htons(6);
+
 #ifdef ENABLE_NF9_VLAN
-	v4_template.r[14].type = htons(NF9_ICMP_TYPE);
-	v4_template.r[14].length = htons(2);
-	v4_template.r[15].type = htons(NF9_SRC_VLAN);
-	v4_template.r[15].length = htons(2);
+	v4_template.r[16].type = htons(NF9_ICMP_TYPE);
+	v4_template.r[16].length = htons(2);
+	v4_template.r[17].type = htons(NF9_SRC_VLAN);
+	v4_template.r[17].length = htons(2);
 #endif /* ENABLE_NF9_VLAN */
 	bzero(&v6_template, sizeof(v6_template));
 	v6_template.h.c.flowset_id = htons(NF9_TEMPLATE_FLOWSET_ID);
@@ -235,11 +246,17 @@ nf9_init_template(void)
 	v6_template.r[12].length = htons(1);
 	v6_template.r[13].type = htons(NF9_TOS);
 	v6_template.r[13].length = htons(1);
+
+	v6_template.r[14].type = htons(NF9_sourceMacAddress);
+	v6_template.r[14].length = htons(6);
+	v6_template.r[15].type = htons(NF9_postDestinationMacAddress);
+	v6_template.r[15].length = htons(6);
+
 #ifdef ENABLE_NF9_VLAN
-	v6_template.r[14].type = htons(NF9_ICMP_TYPE);
-	v6_template.r[14].length = htons(2);
-	v6_template.r[15].type = htons(NF9_SRC_VLAN);
-	v6_template.r[15].length = htons(2);
+	v6_template.r[16].type = htons(NF9_ICMP_TYPE);
+	v6_template.r[16].length = htons(2);
+	v6_template.r[17].type = htons(NF9_SRC_VLAN);
+	v6_template.r[17].length = htons(2);
 #endif /* ENABLE_NF9_VLAN */
 }
 
@@ -320,6 +337,12 @@ nf_flow_to_flowset(const struct FLOW *flow, u_char *packet, u_int len,
 	dc[1]->tcp_flags = flow->tcp_flags[1];
 	dc[0]->tos = flow->tos[0];
 	dc[1]->tos = flow->tos[1];
+	memcpy(&dc[0]->sourceMacAddress, &flow->mac[0], 6);
+	memcpy(&dc[0]->postDestinationMacAddress, &flow->mac[1], 6);
+
+	memcpy(&dc[1]->sourceMacAddress, &flow->mac[0], 6);
+	memcpy(&dc[1]->postDestinationMacAddress, &flow->mac[1], 6);
+
 #ifdef ENABLE_NF9_VLAN
 	if (flow->protocol == IPPROTO_ICMP || flow->protocol == IPPROTO_ICMPV6) {
 	  dc[0]->icmp_type = dc[0]->dst_port;

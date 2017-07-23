@@ -1,3 +1,8 @@
 *.o
 *.log
+*.tags
 
+softflowd
+softflowctl
+
+__pycache__/
